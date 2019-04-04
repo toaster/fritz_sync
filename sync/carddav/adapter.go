@@ -20,7 +20,7 @@ func NewAdapter(contactsURL, user, pass string) *Adapter {
 }
 
 // ReadAll reads all contacts (part of sync.Reader interface).
-func (a *Adapter) ReadAll() (map[string]sync.Contact, error) {
+func (a *Adapter) ReadAll(categories []string) (map[string]sync.Contact, error) {
 	files, err := a.client.ReadDir("/")
 	if err != nil {
 		return nil, err
@@ -42,8 +42,26 @@ func (a *Adapter) ReadAll() (map[string]sync.Contact, error) {
 			} else if err != nil {
 				return nil, err
 			}
-			contact := contactFromCard(card)
-			contacts[contact.ID] = contact
+
+			addContact := true
+			if len(categories) > 0 {
+				addContact = false
+				for _, cat := range card.Categories() {
+					for _, useCat := range categories {
+						if cat == useCat {
+							addContact = true
+							break
+						}
+					}
+					if addContact {
+						break
+					}
+				}
+			}
+			if addContact {
+				contact := contactFromCard(card)
+				contacts[contact.ID] = contact
+			}
 		}
 	}
 	return contacts, nil

@@ -49,7 +49,7 @@ const (
 
 // Reader provides read access to contacts stored on a backend (e.g. CardDAV or Fritz!Box).
 type Reader interface {
-	ReadAll() (map[string]Contact, error)
+	ReadAll([]string) (map[string]Contact, error)
 }
 
 // Writer provides write access to contacts stored on a backend (e.g. CardDAV or Fritz!Box).
@@ -66,11 +66,11 @@ type ReaderWriter interface {
 }
 
 // Sync reads all contacts from “from” and adds or updates the appropriate contacts in “to” if necessary.
-func Sync(from Reader, to ReaderWriter, log *log.Logger) error {
+func Sync(from Reader, to ReaderWriter, categories []string, log *log.Logger) error {
 	if log != nil {
 		log.Println("Read target records…")
 	}
-	old, err := to.ReadAll()
+	old, err := to.ReadAll([]string{})
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func Sync(from Reader, to ReaderWriter, log *log.Logger) error {
 	if log != nil {
 		log.Println("Read source records…")
 	}
-	new, err := from.ReadAll()
+	new, err := from.ReadAll(categories)
 	if err != nil {
 		return err
 	}

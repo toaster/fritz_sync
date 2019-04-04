@@ -27,6 +27,10 @@ func main() {
 			Name:  "carddav_password, cp",
 			Usage: "`PASSWORD` to connect to the CardDAV server",
 		},
+		cli.StringSliceFlag{
+			Name:  "carddav_category, cc",
+			Usage: "`CATEGORY` to synchronize; may be specified multiple times, all categories are synced if omitted",
+		},
 		cli.StringFlag{
 			Name:  "fritz_url, f",
 			Usage: "`URL` of the Fritz!Box",
@@ -91,7 +95,8 @@ func main() {
 		ocAdapter := carddav.NewAdapter(ocABook, ocUser, ocPass)
 
 		// TODO support sync from multiple inputs into one phonebook
-		return sync.Sync(ocAdapter, fritzAdapter, log.New(os.Stdout, "", log.LstdFlags))
+		return sync.Sync(ocAdapter, fritzAdapter, ctx.StringSlice("carddav_category"),
+			log.New(os.Stdout, "", log.LstdFlags))
 	}
 	err := app.Run(os.Args)
 	if err != nil {

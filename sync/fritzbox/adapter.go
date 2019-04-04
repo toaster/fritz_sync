@@ -226,7 +226,7 @@ func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, 
 }
 
 // ReadAll reads all contacts (part of sync.Reader interface).
-func (a *Adapter) ReadAll() (map[string]sync.Contact, error) {
+func (a *Adapter) ReadAll(_ []string) (map[string]sync.Contact, error) {
 	contacts := map[string]sync.Contact{}
 	for i := 0; ; i++ {
 		data, err := a.getPhonebookEntry(i)
