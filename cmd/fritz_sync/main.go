@@ -15,9 +15,9 @@ func main() {
 	app := cli.NewApp()
 	app.Usage = "sync contacts from CardDAV to Fritz!Box"
 	app.Flags = []cli.Flag{
-		cli.StringFlag{
+		cli.StringSliceFlag{
 			Name:  "carddav_url, c",
-			Usage: "`URL` of the CardDAV contacts",
+			Usage: "`URL` of the CardDAV contacts; may be specified multiple times",
 		},
 		cli.StringFlag{
 			Name:  "carddav_user, cu",
@@ -59,7 +59,7 @@ func main() {
 		fritzPass := ctx.String("fritz_password")
 		syncIDKey := ctx.String("fritz_sync_id_key")
 
-		ocABook := ctx.String("carddav_url")
+		ocABooks := ctx.StringSlice("carddav_url")
 		ocUser := ctx.String("carddav_user")
 		ocPass := ctx.String("carddav_password")
 
@@ -78,8 +78,8 @@ func main() {
 		if syncIDKey == "" {
 			return errors.New("you have to specify the Fritz!Box sync ID key")
 		}
-		if ocABook == "" {
-			return errors.New("you have to specify the CardDAV addressbook URL")
+		if len(ocABooks) == 0 {
+			return errors.New("you have to specify at least one CardDAV addressbook URL")
 		}
 		if ocUser == "" {
 			return errors.New("you have to specify the CardDAV user")
@@ -92,10 +92,12 @@ func main() {
 		if err != nil {
 			return err
 		}
-		ocAdapter := carddav.NewAdapter(ocABook, ocUser, ocPass)
+		ocAdapters := []sync.Reader{}
+		for _, ocABook := range ocABooks {
+			ocAdapters = append(ocAdapters, carddav.NewAdapter(ocABook, ocUser, ocPass))
+		}
 
-		// TODO support sync from multiple inputs into one phonebook
-		return sync.Sync(ocAdapter, fritzAdapter, ctx.StringSlice("carddav_category"),
+		return sync.Sync(ocAdapters, fritzAdapter, ctx.StringSlice("carddav_category"),
 			log.New(os.Stdout, "", log.LstdFlags))
 	}
 	err := app.Run(os.Args)

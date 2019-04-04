@@ -66,7 +66,7 @@ type ReaderWriter interface {
 }
 
 // Sync reads all contacts from “from” and adds or updates the appropriate contacts in “to” if necessary.
-func Sync(from Reader, to ReaderWriter, categories []string, log *log.Logger) error {
+func Sync(from []Reader, to ReaderWriter, categories []string, log *log.Logger) error {
 	if log != nil {
 		log.Println("Read target records…")
 	}
@@ -81,9 +81,15 @@ func Sync(from Reader, to ReaderWriter, categories []string, log *log.Logger) er
 	if log != nil {
 		log.Println("Read source records…")
 	}
-	new, err := from.ReadAll(categories)
-	if err != nil {
-		return err
+	new := map[string]Contact{}
+	for _, r := range from {
+		n, err := r.ReadAll(categories)
+		if err != nil {
+			return err
+		}
+		for k, c := range n {
+			new[k] = c
+		}
 	}
 	if log != nil {
 		log.Println("Amount of source records:", len(new))
