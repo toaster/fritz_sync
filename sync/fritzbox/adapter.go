@@ -11,6 +11,7 @@ import (
 
 	"github.com/huin/goupnp/soap"
 	"github.com/toaster/digest"
+
 	"github.com/toaster/fritz_sync/sync"
 )
 
@@ -219,7 +220,7 @@ func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, 
 	}
 
 	if adapter.pbID == "" {
-		return nil, fmt.Errorf("Could not find phonebook “%s” on %s", phonebookName, boxURL)
+		return nil, fmt.Errorf("could not find phonebook “%s” on %s", phonebookName, boxURL)
 	}
 
 	return adapter, nil
@@ -343,7 +344,7 @@ func (a *Adapter) phonebookEntryFromContact(contact sync.Contact) (*fritzPhonebo
 	}
 	if contact.SyncID != "" {
 		entry.Unknown = []unknownXML{
-			unknownXML{
+			{
 				XMLName: xml.Name{Local: a.syncIDKey},
 				Inner:   contact.SyncID,
 			},

@@ -2,10 +2,12 @@ package carddav
 
 import (
 	"io"
+	"os"
 	"strings"
 
-	vcard "github.com/emersion/go-vcard"
+	"github.com/emersion/go-vcard"
 	"github.com/studio-b12/gowebdav"
+
 	"github.com/toaster/fritz_sync/sync"
 )
 
@@ -28,43 +30,50 @@ func (a *Adapter) ReadAll(categories []string) (map[string]sync.Contact, error) 
 
 	contacts := map[string]sync.Contact{}
 	for _, file := range files {
-		reader, err := a.client.ReadStream(file.Name())
-		if err != nil {
+		if err := a.readFile(file, categories, contacts); err != nil {
 			return nil, err
-		}
-		defer reader.Close()
-
-		dec := vcard.NewDecoder(reader)
-		for {
-			card, err := dec.Decode()
-			if err == io.EOF {
-				break
-			} else if err != nil {
-				return nil, err
-			}
-
-			addContact := true
-			if len(categories) > 0 {
-				addContact = false
-				for _, cat := range card.Categories() {
-					for _, useCat := range categories {
-						if cat == useCat {
-							addContact = true
-							break
-						}
-					}
-					if addContact {
-						break
-					}
-				}
-			}
-			if addContact {
-				contact := contactFromCard(card)
-				contacts[contact.ID] = contact
-			}
 		}
 	}
 	return contacts, nil
+}
+
+func (a *Adapter) readFile(file os.FileInfo, categories []string, contacts map[string]sync.Contact) error {
+	reader, err := a.client.ReadStream(file.Name())
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	dec := vcard.NewDecoder(reader)
+	for {
+		card, err := dec.Decode()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+
+		addContact := true
+		if len(categories) > 0 {
+			addContact = false
+			for _, cat := range card.Categories() {
+				for _, useCat := range categories {
+					if cat == useCat {
+						addContact = true
+						break
+					}
+				}
+				if addContact {
+					break
+				}
+			}
+		}
+		if addContact {
+			contact := contactFromCard(card)
+			contacts[contact.ID] = contact
+		}
+	}
+	return nil
 }
 
 func contactFromCard(card vcard.Card) sync.Contact {

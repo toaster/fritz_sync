@@ -28,7 +28,7 @@ type PhoneType int
 
 // The known phone device types.
 const (
-	Voice PhoneType = iota
+	_ PhoneType = iota // Voice
 	Cell
 	Fax
 	// Not supported(?) in FritzBox -> Sync has to use the values supported by _all_ adapters.
@@ -81,18 +81,18 @@ func Sync(from []Reader, to ReaderWriter, categories []string, log *log.Logger) 
 	if log != nil {
 		log.Println("Read source records…")
 	}
-	new := map[string]Contact{}
+	newContacts := map[string]Contact{}
 	for _, r := range from {
 		n, err := r.ReadAll(categories)
 		if err != nil {
 			return err
 		}
 		for k, c := range n {
-			new[k] = c
+			newContacts[k] = c
 		}
 	}
 	if log != nil {
-		log.Println("Amount of source records:", len(new))
+		log.Println("Amount of source records:", len(newContacts))
 	}
 
 	var toBeDeleted []Contact
@@ -100,9 +100,9 @@ func Sync(from []Reader, to ReaderWriter, categories []string, log *log.Logger) 
 	var toBeUpdated []Contact
 
 	for _, oldContact := range old {
-		newContact, ok := new[oldContact.SyncID]
+		newContact, ok := newContacts[oldContact.SyncID]
 		if ok {
-			delete(new, oldContact.SyncID)
+			delete(newContacts, oldContact.SyncID)
 			if !equal(oldContact, newContact) {
 				newContact.SyncID = newContact.ID
 				newContact.ID = oldContact.ID
@@ -112,7 +112,7 @@ func Sync(from []Reader, to ReaderWriter, categories []string, log *log.Logger) 
 			toBeDeleted = append(toBeDeleted, oldContact)
 		}
 	}
-	for _, newContact := range new {
+	for _, newContact := range newContacts {
 		newContact.SyncID = newContact.ID
 		newContact.ID = ""
 		toBeAdded = append(toBeAdded, newContact)

@@ -5,10 +5,11 @@ import (
 	"log"
 	"os"
 
+	"github.com/urfave/cli"
+
 	"github.com/toaster/fritz_sync/sync"
 	"github.com/toaster/fritz_sync/sync/carddav"
 	"github.com/toaster/fritz_sync/sync/fritzbox"
-	"github.com/urfave/cli"
 )
 
 func main() {
@@ -92,7 +93,7 @@ func main() {
 		if err != nil {
 			return err
 		}
-		ocAdapters := []sync.Reader{}
+		var ocAdapters []sync.Reader
 		for _, ocABook := range ocABooks {
 			ocAdapters = append(ocAdapters, carddav.NewAdapter(ocABook, ocUser, ocPass))
 		}
