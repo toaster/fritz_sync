@@ -3,125 +3,27 @@ package fritzbox
 import (
 	"encoding/xml"
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/huin/goupnp/soap"
-	"github.com/toaster/digest"
 
 	"github.com/toaster/fritz_sync/sync"
+	"github.com/toaster/fritz_sync/tr064"
 )
 
 // Adapter implements the sync.Reader interface for accessing Fritz!Box contacts.
 type Adapter struct {
-	httpClient *http.Client
-	soapClient *soap.SOAPClient
-	ns         string
-	pbID       string
-	syncIDKey  string
-}
-
-type unknownXML struct {
-	XMLName xml.Name `xml:""`
-	Inner   string   `xml:",innerxml"`
-}
-
-type tr64SpecVersion struct {
-	Major   int          `xml:"major"`
-	Minor   int          `xml:"minor"`
-	Unknown []unknownXML `xml:",any"`
-}
-
-type tr64SystemVersion struct {
-	Major   int          `xml:"Major"`
-	Minor   int          `xml:"Minor"`
-	Patch   int          `xml:"Patch"`
-	HW      int          `xml:"HW"`
-	Build   int          `xml:"Buildnumber"`
-	Display string       `xml:"Display"`
-	Unknown []unknownXML `xml:",any"`
-}
-
-type tr64Icon struct {
-	Mimetype string       `xml:"mimetype"`
-	Width    int          `xml:"width"`
-	Height   int          `xml:"height"`
-	Depth    int          `xml:"depth"`
-	URL      string       `xml:"url"`
-	Unknown  []unknownXML `xml:",any"`
-}
-
-type tr64Service struct {
-	Type        string       `xml:"serviceType"`
-	ID          string       `xml:"serviceId"`
-	ControlURL  string       `xml:"controlURL"`
-	EventSubURL string       `xml:"eventSubURL"`
-	ScpdURL     string       `xml:"SCPDURL"`
-	Unknown     []unknownXML `xml:",any"`
-}
-
-type tr64Device struct {
-	Type            string        `xml:"deviceType"`
-	FriendlyName    string        `xml:"friendlyName"`
-	Manufacturer    string        `xml:"manufacturer"`
-	ManufacturerURL string        `xml:"manufacturerURL"`
-	Description     string        `xml:"modelDescription"`
-	Name            string        `xml:"modelName"`
-	Number          string        `xml:"modelNumber"`
-	URL             string        `xml:"modelURL"`
-	UDN             string        `xml:"UDN"`
-	UPC             string        `xml:"UPC"`
-	Icons           []tr64Icon    `xml:"iconList>icon"`
-	Services        []tr64Service `xml:"serviceList>service"`
-	Devices         []tr64Device  `xml:"deviceList>device"`
-	PresentationURL string        `xml:"presentationURL"`
-	Unknown         []unknownXML  `xml:",any"`
-}
-
-type tr64Desc struct {
-	XMLName       xml.Name          `xml:"urn:dslforum-org:device-1-0 root"`
-	SpecVersion   tr64SpecVersion   `xml:"specVersion"`
-	SystemVersion tr64SystemVersion `xml:"systemVersion"`
-	Device        tr64Device        `xml:"device"`
-	Unknown       []unknownXML      `xml:",any"`
-}
-
-type tr64ActionArg struct {
-	Name          string       `xml:"name"`
-	Direction     string       `xml:"direction"`
-	StateVariable string       `xml:"relatedStateVariable"`
-	Unknown       []unknownXML `xml:",any"`
-}
-
-type tr64Action struct {
-	Name      string          `xml:"name"`
-	Arguments []tr64ActionArg `xml:"argumentList>argument"`
-	Unknown   []unknownXML    `xml:",any"`
-}
-
-type tr64StateVariableSpec struct {
-	Name          string       `xml:"name"`
-	DataType      string       `xml:"dataType"`
-	DefaultValue  string       `xml:"defaultValue"`
-	AllowedValues []string     `xml:"allowedValueList>allowedValue"`
-	Unknown       []unknownXML `xml:",any"`
-}
-
-type tr64SCPD struct {
-	XMLName           xml.Name                `xml:"urn:dslforum-org:service-1-0 scpd"`
-	SpecVersion       tr64SpecVersion         `xml:"specVersion"`
-	Actions           []tr64Action            `xml:"actionList>action"`
-	ServiceStateSpecs []tr64StateVariableSpec `xml:"serviceStateTable>stateVariable"`
-	Unknown           []unknownXML            `xml:",any"`
+	tr064Adapter *tr064.Adapter
+	ns           string
+	pbID         string
+	syncIDKey    string
 }
 
 type fritzPbPerson struct {
-	ImgURL   string       `xml:"imageURL"`
-	RealName string       `xml:"realName"`
-	Unknown  []unknownXML `xml:",any"`
+	ImgURL   string             `xml:"imageURL"`
+	RealName string             `xml:"realName"`
+	Unknown  []tr064.UnknownXML `xml:",any"`
 }
 
 type fritzPbNumber struct {
@@ -134,10 +36,10 @@ type fritzPbNumber struct {
 }
 
 type fritzPbTelephony struct {
-	NID     int             `xml:"nid,attr"`
-	NNID    int             `xml:"nnid,attr"`
-	Numbers []fritzPbNumber `xml:"number"`
-	Unknown []unknownXML    `xml:",any"`
+	NID     int                `xml:"nid,attr"`
+	NNID    int                `xml:"nnid,attr"`
+	Numbers []fritzPbNumber    `xml:"number"`
+	Unknown []tr064.UnknownXML `xml:",any"`
 }
 
 type fritzPbEmail struct {
@@ -147,34 +49,28 @@ type fritzPbEmail struct {
 }
 
 type fritzPhonebookEntry struct {
-	XMLName   xml.Name         `xml:"contact"`
-	Category  int              `xml:"category"`
-	Email     fritzPbEmail     `xml:"services>email"`
-	Features  string           `xml:"features"`
-	Modtime   int              `xml:"mod_time"`
-	Person    fritzPbPerson    `xml:"person"`
-	Setup     string           `xml:"setup"`
-	Telephony fritzPbTelephony `xml:"telephony"`
-	UniqueID  int              `xml:"uniqueid"`
-	Unknown   []unknownXML     `xml:",any"`
-}
-
-type fritzUPNPError struct {
-	XMLName     xml.Name `xml:"urn:dslforum-org:control-1-0 UPnPError"`
-	Code        string   `xml:"errorCode"`
-	Description string   `xml:"errorDescription"`
+	XMLName   xml.Name           `xml:"contact"`
+	Category  int                `xml:"category"`
+	Email     fritzPbEmail       `xml:"services>email"`
+	Features  string             `xml:"features"`
+	Modtime   int                `xml:"mod_time"`
+	Person    fritzPbPerson      `xml:"person"`
+	Setup     string             `xml:"setup"`
+	Telephony fritzPbTelephony   `xml:"telephony"`
+	UniqueID  int                `xml:"uniqueid"`
+	Unknown   []tr064.UnknownXML `xml:",any"`
 }
 
 // NewAdapter creates a new Adapter for a given Fritz!Box URL and the corresponding credentials.
 func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, error) {
 	describeURL := boxURL + "/tr64desc.xml"
 
-	var desc tr64Desc
-	if err := fetchXML(describeURL, &desc); err != nil {
+	var desc tr064.Description
+	if err := tr064.FetchXML(describeURL, &desc); err != nil {
 		return nil, err
 	}
 
-	var telService *tr64Service
+	var telService *tr064.Service
 	for _, service := range desc.Device.Services {
 		if service.Type == "urn:dslforum-org:service:X_AVM-DE_OnTel:1" {
 			telService = &service
@@ -185,23 +81,21 @@ func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, 
 		return nil, fmt.Errorf("%s does not provide a X_AVM-DE_OnTel:1 service", boxURL)
 	}
 
-	var scpd tr64SCPD
-	if err := fetchXML(boxURL+telService.ScpdURL, &scpd); err != nil {
+	var scpd tr064.SCPD
+	if err := tr064.FetchXML(boxURL+telService.ScpdURL, &scpd); err != nil {
 		return nil, err
 	}
 	// TODO: check scpd for required Function definitions
 
-	controlURL, err := url.Parse(boxURL + telService.ControlURL)
+	tr064Adapter, err := tr064.NewAdapter(boxURL, telService.ControlURL, user, pass)
 	if err != nil {
 		return nil, err
 	}
 
-	httpClient := http.Client{Transport: digest.NewTransport(user, pass)}
 	adapter := &Adapter{
-		httpClient: &httpClient,
-		soapClient: &soap.SOAPClient{EndpointURL: *controlURL, HTTPClient: httpClient},
-		ns:         telService.Type,
-		syncIDKey:  syncIDKey,
+		tr064Adapter: tr064Adapter,
+		ns:           telService.Type,
+		syncIDKey:    syncIDKey,
 	}
 
 	pbIDs, err := adapter.getPhonebookList()
@@ -234,7 +128,7 @@ func (a *Adapter) ReadAll(_ []string) (map[string]sync.Contact, error) {
 		if err != nil {
 			if serr, ok := err.(*soap.SOAPFaultError); ok {
 				if serr.FaultCode == "s:Client" && serr.FaultString == "UPnPError" {
-					var upnpError fritzUPNPError
+					var upnpError tr064.UPNPError
 					if err := xml.Unmarshal(serr.Detail.Raw, &upnpError); err != nil {
 						return nil, err
 					}
@@ -343,7 +237,7 @@ func (a *Adapter) phonebookEntryFromContact(contact sync.Contact) (*fritzPhonebo
 		entry.Telephony.Numbers = append(entry.Telephony.Numbers, number)
 	}
 	if contact.SyncID != "" {
-		entry.Unknown = []unknownXML{
+		entry.Unknown = []tr064.UnknownXML{
 			{
 				XMLName: xml.Name{Local: a.syncIDKey},
 				Inner:   contact.SyncID,
@@ -354,22 +248,6 @@ func (a *Adapter) phonebookEntryFromContact(contact sync.Contact) (*fritzPhonebo
 	return &entry, nil
 }
 
-func fetchXML(url string, result interface{}) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if err := xml.Unmarshal(body, result); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (a *Adapter) getPhonebook(id string) (string, error) {
 	params := struct{ NewPhonebookID string }{NewPhonebookID: id}
 	result := struct {
@@ -377,7 +255,7 @@ func (a *Adapter) getPhonebook(id string) (string, error) {
 		NewPhonebookExtraID string
 		NewPhonebookURL     string
 	}{}
-	if err := a.soapClient.PerformAction(a.ns, "GetPhonebook", &params, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebook", &params, &result); err != nil {
 		return "", err
 	}
 	return result.NewPhonebookName, nil
@@ -385,7 +263,7 @@ func (a *Adapter) getPhonebook(id string) (string, error) {
 
 func (a *Adapter) getNumberOfEntries() (string, error) {
 	result := struct{ NewOnTelNumberOfEntries string }{}
-	if err := a.soapClient.PerformAction(a.ns, "GetNumberOfEntries", nil, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "GetNumberOfEntries", nil, &result); err != nil {
 		return "", err
 	}
 	return result.NewOnTelNumberOfEntries, nil
@@ -393,7 +271,7 @@ func (a *Adapter) getNumberOfEntries() (string, error) {
 
 func (a *Adapter) getPhonebookList() ([]string, error) {
 	result := struct{ NewPhonebookList string }{}
-	if err := a.soapClient.PerformAction(a.ns, "GetPhonebookList", nil, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebookList", nil, &result); err != nil {
 		return nil, err
 	}
 	return strings.Split(result.NewPhonebookList, ","), nil
@@ -401,7 +279,7 @@ func (a *Adapter) getPhonebookList() ([]string, error) {
 
 func (a *Adapter) getDECTHandsetList() (string, error) {
 	result := struct{ NewDectIDList string }{}
-	if err := a.soapClient.PerformAction(a.ns, "GetDECTHandsetList", nil, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "GetDECTHandsetList", nil, &result); err != nil {
 		return "", err
 	}
 	return result.NewDectIDList, nil
@@ -413,7 +291,7 @@ func (a *Adapter) getDECTHandsetInfo(id string) (string, string, error) {
 		NewHandsetName string
 		NewPhonebookID string
 	}{}
-	if err := a.soapClient.PerformAction(a.ns, "GetDECTHandsetInfo", &params, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "GetDECTHandsetInfo", &params, &result); err != nil {
 		return "", "", err
 	}
 	return result.NewHandsetName, result.NewPhonebookID, nil
@@ -428,7 +306,7 @@ func (a *Adapter) getPhonebookEntry(index int) (*fritzPhonebookEntry, error) {
 		NewPhonebookEntryID: strconv.Itoa(index),
 	}
 	result := struct{ NewPhonebookEntryData string }{}
-	if err := a.soapClient.PerformAction(a.ns, "GetPhonebookEntry", &params, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebookEntry", &params, &result); err != nil {
 		return nil, err
 	}
 	var entry fritzPhonebookEntry
@@ -452,7 +330,7 @@ func (a *Adapter) setPhonebookEntry(entry *fritzPhonebookEntry) (string, error) 
 		NewPhonebookEntryData: xml.Header + string(data),
 	}
 	result := struct{ NewPhonebookEntryUniqueID string }{}
-	if err := a.soapClient.PerformAction(a.ns, "SetPhonebookEntryUID", &params, &result); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "SetPhonebookEntryUID", &params, &result); err != nil {
 		return "", err
 	}
 	return result.NewPhonebookEntryUniqueID, nil
@@ -466,7 +344,7 @@ func (a *Adapter) deletePhonebookEntry(uniqueID string) error {
 		NewPhonebookID:            a.pbID,
 		NewPhonebookEntryUniqueID: uniqueID,
 	}
-	if err := a.soapClient.PerformAction(a.ns, "DeletePhonebookEntryUID", &params, nil); err != nil {
+	if err := a.tr064Adapter.Perform(a.ns, "DeletePhonebookEntryUID", &params, nil); err != nil {
 		return err
 	}
 	return nil
