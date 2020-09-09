@@ -1,6 +1,11 @@
 module github.com/toaster/fritz_sync
 
-replace github.com/huin/goupnp => github.com/toaster/goupnp v1.0.1-wip-3
+go 1.14
+
+//replace github.com/huin/goupnp => github.com/toaster/goupnp v1.0.3-wip
+replace github.com/huin/goupnp => ../goupnp
+
+replace github.com/toaster/digest => ../digest
 
 require (
 	github.com/emersion/go-vcard v0.0.0-20190105225839-8856043f13c5

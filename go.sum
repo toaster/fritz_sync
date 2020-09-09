@@ -3,10 +3,6 @@ github.com/emersion/go-vcard v0.0.0-20190105225839-8856043f13c5/go.mod h1:WIi9g8
 github.com/huin/goutil v0.0.0-20170803182201-1ca381bf3150/go.mod h1:PpLOETDnJ0o3iZrZfqZzyLl6l7F3c6L1oWn7OICBi6o=
 github.com/studio-b12/gowebdav v0.0.0-20190103184047-38f79aeaf1ac h1:xQ9gCVzqb939vjhxuES4IXYe4AlHB4Q71/K06aazQmQ=
 github.com/studio-b12/gowebdav v0.0.0-20190103184047-38f79aeaf1ac/go.mod h1:gCcfDlA1Y7GqOaeEKw5l9dOGx1VLdc/HuQSlQAaZ30s=
-github.com/toaster/digest v0.0.0-20190401193356-8bd17d7ddb36 h1:r9HYUK9W2oZZgyVxHMVJKjmmHtmfxukcDt2qxfx/gQY=
-github.com/toaster/digest v0.0.0-20190401193356-8bd17d7ddb36/go.mod h1:jkng8A+++fL6xxFDLYeZsoB0U9CFSGQYtJ6175c+H3Q=
-github.com/toaster/goupnp v1.0.1-wip-3 h1:Fm3Y3uooyAKPagS3esYr1g/jnql+h/hVd0FXJX6Cj5A=
-github.com/toaster/goupnp v1.0.1-wip-3/go.mod h1:LARRCWkbQM+1rdf3A+P3hMmzQaMg4zZJyyiNALiwjaw=
 github.com/urfave/cli v1.20.0 h1:fDqGv3UG/4jbVl/QkFwEdddtEDjh/5Ov6X+0B/3bPaw=
 github.com/urfave/cli v1.20.0/go.mod h1:70zkFmudgCuE/ngEzBv17Jvp/497gISqfk5gWijbERA=
 golang.org/x/net v0.0.0-20181011144130-49bb7cea24b1 h1:Y/KGZSOdz/2r0WJ9Mkmz6NJBusp0kiNx1Cn82lzJQ6w=

@@ -112,9 +112,17 @@ func encodeRequestAction(actionNamespace, actionName string, inAction interface{
 
 func encodeRequestArgs(w *bytes.Buffer, inAction interface{}) error {
 	in := reflect.Indirect(reflect.ValueOf(inAction))
-	if in.Kind() != reflect.Struct {
-		return fmt.Errorf("goupnp: SOAP inAction is not a struct but of type %v", in.Type())
+	if in.Kind() == reflect.Struct {
+		return encodeStructRequestArgs(w, inAction)
 	}
+	if in.Type() == reflect.TypeOf(map[string]string{}) {
+		return encodeMapRequestArgs(w, inAction.(map[string]string))
+	}
+	return fmt.Errorf("goupnp: SOAP inAction is not a struct nor a map[string]string but of type %v", in.Type())
+}
+
+func encodeStructRequestArgs(w *bytes.Buffer, inAction interface{}) error {
+	in := reflect.Indirect(reflect.ValueOf(inAction))
 	enc := xml.NewEncoder(w)
 	nFields := in.NumField()
 	inType := in.Type()
@@ -128,21 +136,39 @@ func encodeRequestArgs(w *bytes.Buffer, inAction interface{}) error {
 		if value.Kind() != reflect.String {
 			return fmt.Errorf("goupnp: SOAP arg %q is not of type string, but of type %v", argName, value.Type())
 		}
-		elem := xml.StartElement{xml.Name{"", argName}, nil}
-		if err := enc.EncodeToken(elem); err != nil {
-			return fmt.Errorf("goupnp: error encoding start element for SOAP arg %q: %v", argName, err)
-		}
-		if err := enc.Flush(); err != nil {
-			return fmt.Errorf("goupnp: error flushing start element for SOAP arg %q: %v", argName, err)
-		}
-		if _, err := w.Write([]byte(escapeXMLText(value.Interface().(string)))); err != nil {
-			return fmt.Errorf("goupnp: error writing value for SOAP arg %q: %v", argName, err)
-		}
-		if err := enc.EncodeToken(elem.End()); err != nil {
-			return fmt.Errorf("goupnp: error encoding end element for SOAP arg %q: %v", argName, err)
+		if err := encodeRequestArg(argName, enc, w, value.Interface().(string)); err != nil {
+			return err
 		}
 	}
 	enc.Flush()
+	return nil
+}
+
+func encodeMapRequestArgs(w *bytes.Buffer, inAction map[string]string) error {
+	enc := xml.NewEncoder(w)
+	for name, value := range inAction {
+		if err := encodeRequestArg(name, enc, w, value); err != nil {
+			return err
+		}
+	}
+	enc.Flush()
+	return nil
+}
+
+func encodeRequestArg(name string, enc *xml.Encoder, w *bytes.Buffer, value string) error {
+	elem := xml.StartElement{xml.Name{"", name}, nil}
+	if err := enc.EncodeToken(elem); err != nil {
+		return fmt.Errorf("goupnp: error encoding start element for SOAP arg %q: %v", name, err)
+	}
+	if err := enc.Flush(); err != nil {
+		return fmt.Errorf("goupnp: error flushing start element for SOAP arg %q: %v", name, err)
+	}
+	if _, err := w.Write([]byte(escapeXMLText(value))); err != nil {
+		return fmt.Errorf("goupnp: error writing value for SOAP arg %q: %v", name, err)
+	}
+	if err := enc.EncodeToken(elem.End()); err != nil {
+		return fmt.Errorf("goupnp: error encoding end element for SOAP arg %q: %v", name, err)
+	}
 	return nil
 }
 
@@ -188,8 +214,8 @@ type SOAPFaultDetail struct {
 
 // SOAPFaultError implements error, and contains SOAP fault information.
 type SOAPFaultError struct {
-	FaultCode   string `xml:"faultcode"`
-	FaultString string `xml:"faultstring"`
+	FaultCode   string          `xml:"faultcode"`
+	FaultString string          `xml:"faultstring"`
 	Detail      SOAPFaultDetail `xml:"detail"`
 }
 

@@ -1,3 +1,5 @@
+package digest
+
 // Copyright 2013 M-Lab
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +17,7 @@
 // The digest package provides an implementation of http.RoundTripper that takes
 // care of HTTP Digest Authentication (http://www.ietf.org/rfc/rfc2617.txt).
 // This only implements the MD5 and "auth" portions of the RFC, but that covers
-// the majority of avalible server side implementations including apache web
+// the majority of available server side implementations including apache web
 // server.
 //
 // Example usage:
@@ -41,7 +43,6 @@
 //		return err
 //	}
 //
-package digest
 
 import (
 	"bytes"
@@ -51,14 +52,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 )
 
+// error constants
 var (
-	ErrNilTransport      = errors.New("Transport is nil")
-	ErrBadChallenge      = errors.New("Challenge is bad")
-	ErrAlgNotImplemented = errors.New("Alg not implemented")
+	ErrNilTransport      = errors.New("transport is nil")
+	ErrBadChallenge      = errors.New("challenge is bad")
+	ErrAlgNotImplemented = errors.New("alg not implemented")
 )
 
 // Transport is an implementation of http.RoundTripper that takes care of http
@@ -67,6 +70,7 @@ type Transport struct {
 	Username  string
 	Password  string
 	Transport http.RoundTripper
+	auth      string
 }
 
 // NewTransport creates a new digest transport using the http.DefaultTransport.
@@ -118,7 +122,7 @@ func parseChallenge(input string) (*challenge, error) {
 		case "algorithm":
 			c.Algorithm = strings.Trim(r[1], qs)
 		case "qop":
-			//TODO(gavaletz) should be an array of strings?
+			// TODO(gavaletz) should be an array of strings?
 			c.Qop = strings.Trim(r[1], qs)
 		default:
 			return nil, ErrBadChallenge
@@ -143,7 +147,9 @@ type credentials struct {
 
 func h(data string) string {
 	hf := md5.New()
-	io.WriteString(hf, data)
+	if _, err := io.WriteString(hf, data); err != nil {
+		log.Println("Failed to write MD5 hash:", err)
+	}
 	return fmt.Sprintf("%x", hf.Sum(nil))
 }
 
@@ -166,7 +172,9 @@ func (c *credentials) resp(cnonce string) (string, error) {
 			c.Cnonce = cnonce
 		} else {
 			b := make([]byte, 8)
-			io.ReadFull(rand.Reader, b)
+			if _, err := io.ReadFull(rand.Reader, b); err != nil {
+				log.Println("Failed to read random bytes:", err)
+			}
 			c.Cnonce = fmt.Sprintf("%x", b)[:16]
 		}
 		return kd(c.ha1(), fmt.Sprintf("%s:%08x:%s:%s:%s",
@@ -234,47 +242,42 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, ErrNilTransport
 	}
 
-	// Copy the request so we don't modify the input.
-	req2 := new(http.Request)
-	*req2 = *req
-	req2.Header = make(http.Header)
-	for k, s := range req.Header {
-		req2.Header[k] = s
+	body := bytes.NewBuffer([]byte{})
+	// reuse auth
+	if t.auth != "" {
+		req.Header.Set("Authorization", t.auth)
 	}
-
-	// Copy body - we need it twice.
-	if req.Body != nil {
-		body, err := ioutil.ReadAll(req.Body)
-		if err != nil {
-			return nil, err
-		}
-		req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-		req2.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-	}
-	// Make a request to get the 401 that contains the challenge.
+	req.Body = newTeeReadCloser(req.Body, body)
 	resp, err := t.Transport.RoundTrip(req)
+	// response did not require auth
 	if err != nil || resp.StatusCode != 401 {
 		return resp, err
 	}
-	chal := resp.Header.Get("WWW-Authenticate")
-	c, err := parseChallenge(chal)
+
+	challenge, err := parseChallenge(resp.Header.Get("WWW-Authenticate"))
+	if err != nil {
+		return resp, fmt.Errorf("failed to parse challenge: %v", err)
+	}
+
+	// form credentials based on the auth
+	cr := t.newCredentials(req, challenge)
+	t.auth, err = cr.authorize()
 	if err != nil {
 		return resp, err
 	}
-
-	// Form credentials based on the challenge.
-	cr := t.newCredentials(req2, c)
-	auth, err := cr.authorize()
-	if err != nil {
-		return resp, err
-	}
-
-	// We'll no longer use the initial response, so close it
+	// We'll no longer use the initial response, so close it.
 	resp.Body.Close()
 
-	// Make authenticated request.
-	req2.Header.Set("Authorization", auth)
-	return t.Transport.RoundTrip(req2)
+	// retry with new auth
+	authReq := new(http.Request)
+	*authReq = *req
+	authReq.Header = make(http.Header)
+	for k, s := range req.Header {
+		authReq.Header[k] = s
+	}
+	authReq.Header.Set("Authorization", t.auth)
+	authReq.Body = ioutil.NopCloser(body)
+	return t.Transport.RoundTrip(authReq)
 }
 
 // Client returns an HTTP client that uses the digest transport.
@@ -283,4 +286,21 @@ func (t *Transport) Client() (*http.Client, error) {
 		return nil, ErrNilTransport
 	}
 	return &http.Client{Transport: t}, nil
+}
+
+type teeReadCloser struct {
+	rc io.ReadCloser
+	tr io.Reader
+}
+
+func newTeeReadCloser(rc io.ReadCloser, w io.Writer) io.ReadCloser {
+	return &teeReadCloser{rc: rc, tr: io.TeeReader(rc, w)}
+}
+
+func (t teeReadCloser) Read(p []byte) (n int, err error) {
+	return t.tr.Read(p)
+}
+
+func (t teeReadCloser) Close() error {
+	return t.rc.Close()
 }
