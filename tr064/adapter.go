@@ -69,7 +69,7 @@ type device struct {
 	UDN             string       `xml:"UDN"`
 	UPC             string       `xml:"UPC"`
 	Icons           []icon       `xml:"iconList>icon"`
-	Services        []Service    `xml:"serviceList>Service"`
+	Services        []Service    `xml:"serviceList>service"`
 	Devices         []device     `xml:"deviceList>device"`
 	PresentationURL string       `xml:"presentationURL"`
 	Unknown         []UnknownXML `xml:",any"`
@@ -107,7 +107,7 @@ type stateVariableSpec struct {
 
 // SCPD describes TR064 service control actions.
 type SCPD struct {
-	XMLName           xml.Name            `xml:"urn:dslforum-org:Service-1-0 scpd"`
+	XMLName           xml.Name            `xml:"urn:dslforum-org:service-1-0 scpd"`
 	SpecVersion       specVersion         `xml:"specVersion"`
 	Actions           []action            `xml:"actionList>action"`
 	ServiceStateSpecs []stateVariableSpec `xml:"serviceStateTable>stateVariable"`
@@ -156,5 +156,5 @@ func NewAdapter(baseURL, svcCtrlURL, user, pass string) (*Adapter, error) {
 
 // Perform performs a TR064 action.
 func (a *Adapter) Perform(ns, action string, params, result interface{}) error {
-	return a.soapClient.PerformAction(ns, action, &params, &result)
+	return a.soapClient.PerformAction(ns, action, params, result)
 }
