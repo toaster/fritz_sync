@@ -61,6 +61,11 @@ type fritzPhonebookEntry struct {
 	Unknown   []tr064.UnknownXML `xml:",any"`
 }
 
+const (
+	errorInvalidArrayIndex = "713"
+	errorInternalError     = "820"
+)
+
 // NewAdapter creates a new Adapter for a given Fritz!Box URL and the corresponding credentials.
 func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, error) {
 	describeURL := boxURL + "/tr64desc.xml"
@@ -132,8 +137,8 @@ func (a *Adapter) ReadAll(_ []string) (map[string]sync.Contact, error) {
 					if err := xml.Unmarshal(serr.Detail.Raw, &upnpError); err != nil {
 						return nil, err
 					}
-					if upnpError.Code == "713" {
-						// index out of bounds
+					// Fritz!OS 7.20 on Fritz!Box 7590 returns 820 (internal) instead of 713 (invalid index)
+					if upnpError.Code == errorInvalidArrayIndex || upnpError.Code == errorInternalError {
 						break
 					}
 				}
