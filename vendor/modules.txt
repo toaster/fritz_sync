@@ -4,6 +4,9 @@ github.com/emersion/go-vcard
 # github.com/huin/goupnp v0.0.0-00010101000000-000000000000 => ../goupnp
 ## explicit
 github.com/huin/goupnp/soap
+# github.com/jlaffaye/ftp v0.0.0-20200812143550-39e3779af0db
+## explicit
+github.com/jlaffaye/ftp
 # github.com/studio-b12/gowebdav v0.0.0-20190103184047-38f79aeaf1ac
 ## explicit
 github.com/studio-b12/gowebdav

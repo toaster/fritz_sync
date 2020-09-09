@@ -1,12 +1,17 @@
 package fritzbox
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/huin/goupnp/soap"
+	"github.com/jlaffaye/ftp"
 
 	"github.com/toaster/fritz_sync/sync"
 	"github.com/toaster/fritz_sync/tr064"
@@ -14,10 +19,14 @@ import (
 
 // Adapter implements the sync.Reader interface for accessing Fritz!Box contacts.
 type Adapter struct {
-	tr064Adapter *tr064.Adapter
+	ftpHost      string
+	ftpPass      string
+	ftpUser      string
 	ns           string
 	pbID         string
+	pixStorage   string
 	syncIDKey    string
+	tr064Adapter *tr064.Adapter
 }
 
 type fritzPbPerson struct {
@@ -66,10 +75,16 @@ const (
 	errorInternalError     = "820"
 )
 
-// NewAdapter creates a new Adapter for a given Fritz!Box URL and the corresponding credentials.
-func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, error) {
-	describeURL := boxURL + "/tr64desc.xml"
+const imgURLPrefix = "file:///var/InternerSpeicher"
 
+// NewAdapter creates a new Adapter for a given Fritz!Box URL and the corresponding credentials.
+func NewAdapter(boxURL, phonebookName, user, pass, storageName, syncIDKey string) (*Adapter, error) {
+	uri, err := url.Parse(boxURL)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse Fritz!Box URL: %v", err)
+	}
+
+	describeURL := boxURL + "/tr64desc.xml"
 	var desc tr064.Description
 	if err := tr064.FetchXML(describeURL, &desc); err != nil {
 		return nil, err
@@ -98,9 +113,13 @@ func NewAdapter(boxURL, phonebookName, user, pass, syncIDKey string) (*Adapter, 
 	}
 
 	adapter := &Adapter{
-		tr064Adapter: tr064Adapter,
+		ftpHost:      uri.Hostname(),
+		ftpPass:      pass,
+		ftpUser:      user,
 		ns:           telService.Type,
+		pixStorage:   storageName,
 		syncIDKey:    syncIDKey,
+		tr064Adapter: tr064Adapter,
 	}
 
 	pbIDs, err := adapter.getPhonebookList()
@@ -145,7 +164,10 @@ func (a *Adapter) ReadAll(_ []string) (map[string]sync.Contact, error) {
 			}
 			return nil, err
 		}
-		contact := a.contactFromPhonebookEntry(data)
+		contact, err := a.contactFromPhonebookEntry(data)
+		if err != nil {
+			return nil, err
+		}
 		contacts[contact.ID] = contact
 	}
 	return contacts, nil
@@ -180,7 +202,7 @@ func (a *Adapter) Update(contacts []sync.Contact) error {
 	return a.Add(contacts)
 }
 
-func (a *Adapter) contactFromPhonebookEntry(entry *fritzPhonebookEntry) sync.Contact {
+func (a *Adapter) contactFromPhonebookEntry(entry *fritzPhonebookEntry) (sync.Contact, error) {
 	contact := sync.Contact{
 		FullName: strings.TrimSpace(entry.Person.RealName),
 		Email:    strings.TrimSpace(entry.Email.Address),
@@ -209,8 +231,158 @@ func (a *Adapter) contactFromPhonebookEntry(entry *fritzPhonebookEntry) sync.Con
 			break
 		}
 	}
-	// TODO Image
-	return contact
+	img, err := a.downloadImage(entry.Person.ImgURL)
+	if err != nil {
+		return sync.Contact{}, err
+	}
+	contact.Image = img
+	return contact, nil
+}
+
+func (a *Adapter) deletePhonebookEntry(uniqueID string) error {
+	params := struct {
+		NewPhonebookID            string
+		NewPhonebookEntryUniqueID string
+	}{
+		NewPhonebookID:            a.pbID,
+		NewPhonebookEntryUniqueID: uniqueID,
+	}
+	if err := a.tr064Adapter.Perform(a.ns, "DeletePhonebookEntryUID", &params, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *Adapter) downloadImage(imgURL string) (string, error) {
+	if imgURL == "" {
+		return "", nil
+	}
+
+	ftpConn, err := a.ftpConn()
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = ftpConn.Quit() }()
+
+	imgPath := a.imgPathForImgURL(imgURL)
+	imgReader, err := ftpConn.Retr(imgPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot download image: %v", err)
+	}
+	buf := new(bytes.Buffer)
+	encoder := base64.NewEncoder(base64.StdEncoding, buf)
+	if _, err := io.Copy(encoder, imgReader); err != nil {
+		return "", fmt.Errorf("cannot download/encode image: %v", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return "", fmt.Errorf("cannot encode image: %v", err)
+	}
+
+	return buf.String(), nil
+}
+
+func (a *Adapter) ftpConn() (*ftp.ServerConn, error) {
+	ftpConn, err := ftp.Dial(
+		a.ftpHost + ":21",
+		// TLS deactivated because it is not stable on upload (Fritz!OS 7.20).
+		// ftp.DialWithExplicitTLS(&tls.Config{ServerName: a.ftpHost}),
+		// ftp.DialWithDebugOutput(os.Stdout),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot connect to FTP server: %v", err)
+	}
+
+	if err := ftpConn.Login(a.ftpUser, a.ftpPass); err != nil {
+		_ = ftpConn.Quit()
+		return nil, fmt.Errorf("cannot log into FTP server: %v", err)
+	}
+	return ftpConn, nil
+}
+
+func (a *Adapter) getDECTHandsetInfo(id string) (string, string, error) {
+	params := struct{ NewDectID string }{NewDectID: id}
+	result := struct {
+		NewHandsetName string
+		NewPhonebookID string
+	}{}
+	if err := a.tr064Adapter.Perform(a.ns, "GetDECTHandsetInfo", &params, &result); err != nil {
+		return "", "", err
+	}
+	return result.NewHandsetName, result.NewPhonebookID, nil
+}
+
+func (a *Adapter) getDECTHandsetList() (string, error) {
+	result := struct{ NewDectIDList string }{}
+	if err := a.tr064Adapter.Perform(a.ns, "GetDECTHandsetList", nil, &result); err != nil {
+		return "", err
+	}
+	return result.NewDectIDList, nil
+}
+
+func (a *Adapter) getNumberOfEntries() (string, error) {
+	result := struct{ NewOnTelNumberOfEntries string }{}
+	if err := a.tr064Adapter.Perform(a.ns, "GetNumberOfEntries", nil, &result); err != nil {
+		return "", err
+	}
+	return result.NewOnTelNumberOfEntries, nil
+}
+
+func (a *Adapter) getPhonebook(id string) (string, error) {
+	params := struct{ NewPhonebookID string }{NewPhonebookID: id}
+	result := struct {
+		NewPhonebookName    string
+		NewPhonebookExtraID string
+		NewPhonebookURL     string
+	}{}
+	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebook", &params, &result); err != nil {
+		return "", err
+	}
+	return result.NewPhonebookName, nil
+}
+
+func (a *Adapter) getPhonebookEntry(index int) (*fritzPhonebookEntry, error) {
+	params := struct {
+		NewPhonebookID      string
+		NewPhonebookEntryID string
+	}{
+		NewPhonebookID:      a.pbID,
+		NewPhonebookEntryID: strconv.Itoa(index),
+	}
+	result := struct{ NewPhonebookEntryData string }{}
+	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebookEntry", &params, &result); err != nil {
+		return nil, err
+	}
+	var entry fritzPhonebookEntry
+	if err := xml.Unmarshal([]byte(result.NewPhonebookEntryData), &entry); err != nil {
+		return nil, err
+	}
+
+	return &entry, nil
+}
+
+func (a *Adapter) getPhonebookList() ([]string, error) {
+	result := struct{ NewPhonebookList string }{}
+	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebookList", nil, &result); err != nil {
+		return nil, err
+	}
+	return strings.Split(result.NewPhonebookList, ","), nil
+}
+
+func (a *Adapter) imgPathForID(id string) string {
+	pixPath := "/FRITZ/fonpix"
+	if a.pixStorage != "" {
+		pixPath = "/" + a.pixStorage + pixPath
+	}
+	imgPath := pixPath + "/" + id
+	return imgPath
+}
+
+func (a *Adapter) imgPathForImgURL(imgURL string) string {
+	return strings.TrimPrefix(imgURL, imgURLPrefix)
+}
+
+func (a *Adapter) imgURLForImgPath(imgPath string) string {
+	return imgURLPrefix + imgPath
 }
 
 func (a *Adapter) phonebookEntryFromContact(contact sync.Contact) (*fritzPhonebookEntry, error) {
@@ -249,76 +421,13 @@ func (a *Adapter) phonebookEntryFromContact(contact sync.Contact) (*fritzPhonebo
 			},
 		}
 	}
-	// TODO Image
-	return &entry, nil
-}
-
-func (a *Adapter) getPhonebook(id string) (string, error) {
-	params := struct{ NewPhonebookID string }{NewPhonebookID: id}
-	result := struct {
-		NewPhonebookName    string
-		NewPhonebookExtraID string
-		NewPhonebookURL     string
-	}{}
-	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebook", &params, &result); err != nil {
-		return "", err
+	if contact.Image != "" {
+		imgURL, err := a.uploadImage(contact.SyncID, contact.Image)
+		if err != nil {
+			return nil, err
+		}
+		entry.Person.ImgURL = imgURL
 	}
-	return result.NewPhonebookName, nil
-}
-
-func (a *Adapter) getNumberOfEntries() (string, error) {
-	result := struct{ NewOnTelNumberOfEntries string }{}
-	if err := a.tr064Adapter.Perform(a.ns, "GetNumberOfEntries", nil, &result); err != nil {
-		return "", err
-	}
-	return result.NewOnTelNumberOfEntries, nil
-}
-
-func (a *Adapter) getPhonebookList() ([]string, error) {
-	result := struct{ NewPhonebookList string }{}
-	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebookList", nil, &result); err != nil {
-		return nil, err
-	}
-	return strings.Split(result.NewPhonebookList, ","), nil
-}
-
-func (a *Adapter) getDECTHandsetList() (string, error) {
-	result := struct{ NewDectIDList string }{}
-	if err := a.tr064Adapter.Perform(a.ns, "GetDECTHandsetList", nil, &result); err != nil {
-		return "", err
-	}
-	return result.NewDectIDList, nil
-}
-
-func (a *Adapter) getDECTHandsetInfo(id string) (string, string, error) {
-	params := struct{ NewDectID string }{NewDectID: id}
-	result := struct {
-		NewHandsetName string
-		NewPhonebookID string
-	}{}
-	if err := a.tr064Adapter.Perform(a.ns, "GetDECTHandsetInfo", &params, &result); err != nil {
-		return "", "", err
-	}
-	return result.NewHandsetName, result.NewPhonebookID, nil
-}
-
-func (a *Adapter) getPhonebookEntry(index int) (*fritzPhonebookEntry, error) {
-	params := struct {
-		NewPhonebookID      string
-		NewPhonebookEntryID string
-	}{
-		NewPhonebookID:      a.pbID,
-		NewPhonebookEntryID: strconv.Itoa(index),
-	}
-	result := struct{ NewPhonebookEntryData string }{}
-	if err := a.tr064Adapter.Perform(a.ns, "GetPhonebookEntry", &params, &result); err != nil {
-		return nil, err
-	}
-	var entry fritzPhonebookEntry
-	if err := xml.Unmarshal([]byte(result.NewPhonebookEntryData), &entry); err != nil {
-		return nil, err
-	}
-
 	return &entry, nil
 }
 
@@ -341,16 +450,18 @@ func (a *Adapter) setPhonebookEntry(entry *fritzPhonebookEntry) (string, error) 
 	return result.NewPhonebookEntryUniqueID, nil
 }
 
-func (a *Adapter) deletePhonebookEntry(uniqueID string) error {
-	params := struct {
-		NewPhonebookID            string
-		NewPhonebookEntryUniqueID string
-	}{
-		NewPhonebookID:            a.pbID,
-		NewPhonebookEntryUniqueID: uniqueID,
+func (a *Adapter) uploadImage(id, image string) (string, error) {
+	ftpConn, err := a.ftpConn()
+	if err != nil {
+		return "", err
 	}
-	if err := a.tr064Adapter.Perform(a.ns, "DeletePhonebookEntryUID", &params, nil); err != nil {
-		return err
+	defer func() { _ = ftpConn.Quit() }()
+
+	imgPath := a.imgPathForID(id)
+	imgReader := base64.NewDecoder(base64.StdEncoding, strings.NewReader(image))
+	if err := ftpConn.Stor(imgPath, imgReader); err != nil {
+		return "", fmt.Errorf("cannot upload image: %v", err)
 	}
-	return nil
+
+	return a.imgURLForImgPath(imgPath), nil
 }

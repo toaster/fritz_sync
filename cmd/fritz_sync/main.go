@@ -41,6 +41,10 @@ func main() {
 			Usage: "`NAME` of the target phonebook at the Fritz!Box",
 		},
 		cli.StringFlag{
+			Name:  "fritz_storage_name, fs",
+			Usage: "`NAME` of the Fritz!Box storage for pictures",
+		},
+		cli.StringFlag{
 			Name:  "fritz_user, fu",
 			Usage: "`USERNAME` to connect to the Fritz!Box",
 		},
@@ -59,6 +63,7 @@ func main() {
 		fritzUser := ctx.String("fritz_user")
 		fritzPass := ctx.String("fritz_password")
 		syncIDKey := ctx.String("fritz_sync_id_key")
+		storageName := ctx.String("fritz_storage_name")
 
 		ocABooks := ctx.StringSlice("carddav_url")
 		ocUser := ctx.String("carddav_user")
@@ -89,7 +94,7 @@ func main() {
 			return errors.New("you have to specify the CardDAV password")
 		}
 
-		fritzAdapter, err := fritzbox.NewAdapter(boxURL, phonebookName, fritzUser, fritzPass, syncIDKey)
+		fritzAdapter, err := fritzbox.NewAdapter(boxURL, phonebookName, fritzUser, fritzPass, storageName, syncIDKey)
 		if err != nil {
 			return err
 		}

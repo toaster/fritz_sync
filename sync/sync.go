@@ -5,7 +5,7 @@ import (
 	"reflect"
 )
 
-// Contact represents a syncronizable contact record.
+// Contact represents a synchronisable contact record.
 type Contact struct {
 	Email    string
 	FullName string
@@ -49,13 +49,17 @@ const (
 
 // Reader provides read access to contacts stored on a backend (e.g. CardDAV or Fritz!Box).
 type Reader interface {
+	// ReadAll reads all contacts, optionally restricted to a list of categories.
 	ReadAll([]string) (map[string]Contact, error)
 }
 
 // Writer provides write access to contacts stored on a backend (e.g. CardDAV or Fritz!Box).
 type Writer interface {
+	// Add adds all given contacts.
 	Add([]Contact) error
+	// Delete removes all given contacts.
 	Delete([]Contact) error
+	// Update updates all given contacts.
 	Update([]Contact) error
 }
 
@@ -146,6 +150,6 @@ func Sync(from []Reader, to ReaderWriter, categories []string, log *log.Logger) 
 func equal(a, b Contact) bool {
 	return a.Email == b.Email &&
 		a.FullName == b.FullName &&
-		// TODO: support images -> a.Image == b.Image &&
+		a.Image == b.Image &&
 		((len(a.Numbers) == 0 && len(b.Numbers) == 0) || reflect.DeepEqual(a.Numbers, b.Numbers))
 }
